@@ -29,3 +29,12 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Archivos generados por el script
+clasificaciones_*.json
+jerarquia_*.json
+
+# Otros archivos temporales
+*.temp
+*.tmp
+*.bak

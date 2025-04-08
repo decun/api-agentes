@@ -1,19 +1,19 @@
-const DeepInfraOpenAIService = require('../services/deepinfra-openai.service');
-const { MongoClient } = require('mongodb');
+const ClasificadorService = require('../services/clasificador.service');
+const HierarchyService = require('../services/hierarchy.service');
 
 class AgentesController {
   constructor() {
-    this.deepInfraService = new DeepInfraOpenAIService(
-      process.env.DEEPINFRA_API_KEY,
-      process.env.DEEPINFRA_MODEL,
+    this.clasificadorService = new ClasificadorService();
+    this.hierarchyService = new HierarchyService(
+      process.env.MONGODB_URI,
       process.env.DEBUG_MODE === 'true'
     );
-    this.mongoClient = new MongoClient(process.env.MONGODB_URI);
   }
 
   async clasificar(req, res) {
     try {
-      const { conversacion } = req.body;
+      const { conversacion, tenant_id = 'default', aiusecase_id = 'clasificacion_conversaciones', metadata = {} } = req.body;
+      
       if (!conversacion) {
         return res.status(400).json({
           success: false,
@@ -21,7 +21,24 @@ class AgentesController {
         });
       }
 
-      const resultado = await this.deepInfraService.clasificar(conversacion);
+      const resultado = await this.clasificadorService.clasificarConversacion(conversacion);
+      
+      // Guardar en MongoDB solo si está configurado y hay metadatos
+      if (process.env.MONGODB_URI && metadata.idConversacion) {
+        try {
+          await this.clasificadorService.guardarClasificacion(
+            tenant_id,
+            aiusecase_id,
+            metadata,
+            resultado.resultado,
+            resultado.estadisticas
+          );
+        } catch (dbError) {
+          console.error('Error al guardar en MongoDB:', dbError);
+          // No fallar la respuesta si falla MongoDB
+        }
+      }
+      
       res.json({
         success: true,
         data: resultado
@@ -37,18 +54,13 @@ class AgentesController {
 
   async jerarquizar(req, res) {
     try {
-      const { clasificaciones } = req.body;
-      if (!clasificaciones || !Array.isArray(clasificaciones)) {
-        return res.status(400).json({
-          success: false,
-          error: 'Se requiere un array de clasificaciones'
-        });
-      }
-
-      // TODO: Implementar lógica de jerarquización
+      const { tenant_id = 'default', aiusecase_id = 'clasificacion_conversaciones', filters = {} } = req.body;
+      
+      const jerarquia = await this.hierarchyService.processHierarchy(tenant_id, aiusecase_id, filters);
+      
       res.json({
         success: true,
-        message: 'Endpoint en desarrollo'
+        data: jerarquia
       });
     } catch (error) {
       console.error('Error en jerarquización:', error);
@@ -94,7 +106,7 @@ class AgentesController {
       }
 
       // 1. Clasificar
-      const clasificacion = await this.deepInfraService.clasificar(conversacion);
+      const clasificacion = await this.clasificadorService.clasificarConversacion(conversacion);
 
       // 2. Jerarquizar y 3. Simplificar (TODO)
       res.json({
@@ -128,7 +140,7 @@ class AgentesController {
       const total = Math.min(conversaciones.length, limite);
 
       for (let i = 0; i < total; i++) {
-        const resultado = await this.deepInfraService.clasificar(conversaciones[i]);
+        const resultado = await this.clasificadorService.clasificarConversacion(conversaciones[i]);
         resultados.push(resultado);
       }
 
